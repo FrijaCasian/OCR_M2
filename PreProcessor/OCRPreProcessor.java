@@ -1,41 +1,50 @@
 package com.example.demo;
 
 import nu.pattern.OpenCV;
-import org.opencv.core.Core;
-import org.opencv.core.MatOfDouble;
+import org.opencv.core.*;
 import org.opencv.photo.Photo;
 import org.springframework.stereotype.Service;
-import org.opencv.core.Mat;
-import org.opencv.core.MatOfByte;
 import org.opencv.imgcodecs.Imgcodecs;
 import org.opencv.imgproc.Imgproc;
-import org.springframework.stereotype.Service;
 
 import java.awt.image.BufferedImage;
-import java.awt.image.ImagingOpException;
 import javax.imageio.ImageIO;
 import java.io.IOException;
 import java.io.File;
 import java.io.ByteArrayInputStream;
-import java.math.MathContext;
+import org.apache.pdfbox.Loader;
+import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.rendering.PDFRenderer;
+import java.util.ArrayList;
+import java.util.List;
 
 @Service
 public class OCRPreProcessor {
     static{
         OpenCV.loadLocally();
     }
-    public BufferedImage processImage(File file) throws IOException{
+    public BufferedImage processImage(File file, String bank) throws IOException{
         Mat src = Imgcodecs.imread(file.getAbsolutePath());
         if(src.empty()){
             throw new IllegalArgumentException("Couldn't read the image from the file: " + file.getName());
         }
         Mat upscaled  = upscale(src, 2.0);
-        Mat gray      = toGrayScale(upscaled);
-        Mat threshold = applyThresholde(gray);
+        Mat bankCropped;
+        switch(bank.toLowerCase()){
+            case "revolut": bankCropped = cropRevolut(upscaled); break;
+            case "bt": bankCropped = cropBT(upscaled); break;
+            case "ing": bankCropped = cropING(upscaled); break;
+            default: bankCropped = upscaled.clone(); break;
+        }
+        Mat gray      = toGrayScale(bankCropped);
+        Mat sharpened = sharpenImage(gray);
+        Mat threshold = applyThresholde(sharpened);
         BufferedImage result = MatToBufferedImage(threshold);
         src.release();
         gray.release();
+        sharpened.release();
         upscaled.release();
+        threshold.release();
         return result;
     }
     private Mat toGrayScale(Mat src){
@@ -65,18 +74,6 @@ public class OCRPreProcessor {
         Imgproc.resize(src, upscaled, new org.opencv.core.Size(0, 0), factor, factor, Imgproc.INTER_CUBIC);
         return upscaled;
     }
-    /*private Mat morphClean(Mat binary){
-        Mat cleaned = new Mat();
-        Mat kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, new org.opencv.core.Size(1, 1));
-        Imgproc.morphologyEx(binary, cleaned, Imgproc.MORPH_CLOSE, kernel);
-        kernel.release();
-        return cleaned;
-    }
-    private Mat denoiseImage(Mat gray){
-        Mat denoised = new Mat();
-        Photo.fastNlMeansDenoising(gray, denoised, 5, 7, 21);
-        return denoised;
-    }
     private Mat sharpenImage(Mat denoised){
         Mat sharpened = new Mat();
         Mat blur = new Mat();
@@ -84,5 +81,45 @@ public class OCRPreProcessor {
         Core.addWeighted(denoised, 1.3, blur, -0.3, 0, sharpened);
         blur.release();
         return sharpened;
-    }*/
+    }
+    public List<BufferedImage> processPdf(File pdfFile, String bank) throws Exception{
+        try(PDDocument document = Loader.loadPDF(pdfFile)){
+            PDFRenderer pdfRenderer = new PDFRenderer(document);
+            List<BufferedImage> results = new ArrayList<>();
+            for(int page = 0; page < document.getNumberOfPages(); page++){
+                BufferedImage image = pdfRenderer.renderImageWithDPI(page, 300);
+                File tempFile = File.createTempFile("page_" + page, ".png");
+                javax.imageio.ImageIO.write(image, "png", tempFile);
+                BufferedImage processed = processImage(tempFile, bank);
+                tempFile.delete();
+                results.add(processed);
+                System.out.println("Preprocessed page: " + (page + 1));
+            }
+            return results;
+        }
+    }
+    private Mat cropRevolut(Mat src) {
+        int topCut    = (int)(src.rows() * 0.15);
+        int bottomCut = (int)(src.rows() * 0.13);
+        org.opencv.core.Rect roi = new org.opencv.core.Rect(
+                0, topCut, src.cols(), src.rows() - topCut - bottomCut
+        );
+        return new Mat(src, roi);
+    }
+    private Mat cropBT(Mat src) {
+        int topCut    = (int)(src.rows() * 0.115);
+        int bottomCut = (int)(src.rows() * 0.08);
+        org.opencv.core.Rect roi = new org.opencv.core.Rect(
+                0, topCut, src.cols(), src.rows() - topCut - bottomCut
+        );
+        return new Mat(src, roi);
+    }
+    private Mat cropING(Mat src) {
+        int topCut    = (int)(src.rows() * 0.18);
+        int bottomCut = (int)(src.rows() * 0.20);
+        org.opencv.core.Rect roi = new org.opencv.core.Rect(
+                0, topCut, src.cols(), src.rows() - topCut - bottomCut
+        );
+        return new Mat(src, roi);
+    }
 }
