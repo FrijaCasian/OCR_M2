@@ -3,23 +3,36 @@ import java.util.regex.*;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 
-public class BankStatementParser {//metoda principala care primeste textul brut din OCR
+public class BankStatementParser {
 
-    public List<Transaction> parseText(String ocrText) {//lista in care voi salva toate tranzactiile extrase
+    // Metoda principala: primeste text brut de la OCR si returneaza tranzactii structurate
+    public List<Transaction> parseText(String ocrText) {
+
         List<Transaction> transactions = new ArrayList<>();
 
-        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd/MM/yyyy");//formator care transforma datele din string in localdate
+        // format standard pentru data din extrasul bancar
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd/MM/yyyy");
 
-        String[] lines = ocrText.split("\\r?\\n");//impart textul in linii,fiecare linie  poate contine o tranzactie
+        // imparțesc textul pe linii (fiecare linie poate fi o tranzactie)
+        String[] lines = ocrText.split("\\r?\\n");
 
-        for (String line : lines) {//parcurg fiecare linie
+        System.out.println("=== START PARSARE OCR ===");
+
+        for (String line : lines) {
             line = line.trim();
 
-            // ignor liniile inutile
-            if (line.isEmpty() || !line.matches(".*\\d{1,2}/\\d{1,2}/\\d{4}.*")) {
+            // ignor liniile goale
+            if (line.isEmpty()) {
                 continue;
             }
-„
+
+            // corectie simpla erori OCR (ex: O → 0)
+            line = line.replace("O", "0");
+
+            // verific daca linia contine o dată (probabil tranzactie valida)
+            if (!line.matches(".*\\d{1,2}/\\d{1,2}/\\d{4}.*")) {
+                continue;
+            }
             try {
                 // extrag data
                 String dateStr = line.substring(0, 10);
@@ -27,25 +40,37 @@ public class BankStatementParser {//metoda principala care primeste textul brut 
 
                 // extrag suma
                 Matcher matcher = Pattern.compile("(\\d+[.,]?\\d*)\\s*$").matcher(line);
-                double amount = 0;
 
-                if (matcher.find()) {//inlocuiesc , in .
-                    amount = Double.parseDouble(matcher.group(1).replace(",", "."));
+                if (!matcher.find()) {
+                    continue; // dacă nu gasim suma, ignoram linia
                 }
 
-                // extragem descrierea
+                String amountStr = matcher.group(1);
+                double amount = Double.parseDouble(amountStr.replace(",", "."));
+
+                // validez suma
+                if (amount <= 0) {
+                    continue;
+                }
+
+                // extrag descrierea
                 String description = line
-                        .substring(10, line.lastIndexOf(matcher.group(1)))
+                        .substring(10, line.lastIndexOf(amountStr))
                         .trim();
 
-                // creăm obiectul
+                System.out.println("Tranzactie: " + date + " | " + description + " | " + amount);
+
+                // creez obiectul Transaction
                 transactions.add(new Transaction(date, description, amount));
 
             } catch (Exception e) {
-                // ignorăm liniile care nu pot fi parse-uite
+                // dacă linia e corupta, o ignoram fara sa oprim programul
+                System.out.println("Linie ignorata (eroare OCR): " + line);
             }
         }
 
-        return transactions;//returnez lista de tranzactii
+        System.out.println("=== FINAL PARSARE. Total tranzactii: " + transactions.size() + " ===");
+
+        return transactions;
     }
 }
