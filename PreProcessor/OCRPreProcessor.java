@@ -2,7 +2,7 @@ package com.example.demo;
 
 import nu.pattern.OpenCV;
 import org.opencv.core.*;
-import org.opencv.photo.Photo;
+import org.opencv.imgproc.CLAHE;
 import org.springframework.stereotype.Service;
 import org.opencv.imgcodecs.Imgcodecs;
 import org.opencv.imgproc.Imgproc;
@@ -37,32 +37,29 @@ public class OCRPreProcessor {
             default: bankCropped = upscaled.clone(); break;
         }
         Mat gray      = toGrayScale(bankCropped);
-        Mat sharpened = sharpenImage(gray);
-        Mat threshold = applyThresholde(sharpened);
-        BufferedImage result = MatToBufferedImage(threshold);
+        Mat denoised = denoiseImage(gray);
+        Mat enchanced = enhanceContrast(denoised);
+        BufferedImage result = MatToBufferedImage(enchanced);
         src.release();
         gray.release();
-        sharpened.release();
         upscaled.release();
-        threshold.release();
         return result;
+    }
+    private Mat enhanceContrast(Mat gray) {
+        Mat enhanced = new Mat();
+        CLAHE clahe = Imgproc.createCLAHE(2.0, new org.opencv.core.Size(8, 8));
+        clahe.apply(gray, enhanced);
+        return enhanced;
+    }
+    private Mat denoiseImage(Mat gray) {
+        Mat denoised = new Mat();
+        Imgproc.medianBlur(gray, denoised, 3);
+        return denoised;
     }
     private Mat toGrayScale(Mat src){
         Mat gray = new Mat();
         Imgproc.cvtColor(src, gray, Imgproc.COLOR_BGR2GRAY);
         return gray;
-    }
-    private Mat applyThresholde(Mat gray){
-        Mat threshold = new Mat();
-        MatOfDouble mean = new MatOfDouble();
-        MatOfDouble stddev = new MatOfDouble();
-        Core.meanStdDev(gray, mean, stddev);
-        if(stddev.get(0, 0)[0] < 60){
-            Imgproc.threshold(gray, threshold, 0, 255, Imgproc.THRESH_BINARY + Imgproc.THRESH_OTSU);
-        }else{
-            Imgproc.adaptiveThreshold(gray, threshold, 255, Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C, Imgproc.THRESH_BINARY, 17, 4);
-        }
-        return threshold;
     }
     private BufferedImage MatToBufferedImage(Mat matrix) throws IOException{
         MatOfByte mob = new MatOfByte();
@@ -73,14 +70,6 @@ public class OCRPreProcessor {
         Mat upscaled = new Mat();
         Imgproc.resize(src, upscaled, new org.opencv.core.Size(0, 0), factor, factor, Imgproc.INTER_CUBIC);
         return upscaled;
-    }
-    private Mat sharpenImage(Mat denoised){
-        Mat sharpened = new Mat();
-        Mat blur = new Mat();
-        Imgproc.GaussianBlur(denoised, blur, new org.opencv.core.Size(0, 0), 3);
-        Core.addWeighted(denoised, 1.3, blur, -0.3, 0, sharpened);
-        blur.release();
-        return sharpened;
     }
     public List<BufferedImage> processPdf(File pdfFile, String bank) throws Exception{
         try(PDDocument document = Loader.loadPDF(pdfFile)){
